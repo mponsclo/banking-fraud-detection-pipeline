@@ -28,6 +28,22 @@ dist/
 .cursor/
 .claude/
 
+# Environment
+.env
+.env.*
+
+# Python
+*.egg-info/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# Models
+*.pkl
+
+# Project
+CLAUDE.md
+
 # Unit test reports
 TEST*.xml
 

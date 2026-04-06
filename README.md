@@ -24,6 +24,8 @@ End-to-end data science pipeline for banking transaction analysis: data engineer
 
 Instead of ad-hoc pandas preprocessing, the data layer uses a proper **dbt pipeline** with DuckDB as the warehouse — staging, intermediate, and mart layers with SQL-based transformations and schema tests.
 
+![Data Model](data_model.png)
+
 ```
 data/raw/*.csv → [staging views] → [intermediate views] → [mart tables] → Python models
 ```

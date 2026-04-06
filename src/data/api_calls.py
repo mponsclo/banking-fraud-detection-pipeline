@@ -1,3 +1,4 @@
+import os
 import requests
 import time
 import pandas as pd
@@ -85,5 +86,6 @@ def fetch_all_clients_data(url:str, client_ids: list[str], csv_name: str) -> pd.
     df.to_csv(f'./data/raw/{csv_name}.csv', index=False)
 
 if __name__ == "__main__":
+    API_URL = os.environ.get("API_URL", "")
     client_ids = [str(client) for client in range(1, 1000)]
-    df = fetch_all_clients_data("https://faas-lon1-917a94a7.doserverless.co/api/v1/web/fn-a1f52b59-3551-477f-b8f3-de612fbf2769/default/cards-data", client_ids, 'card_data')
+    df = fetch_all_clients_data(API_URL, client_ids, 'card_data')
