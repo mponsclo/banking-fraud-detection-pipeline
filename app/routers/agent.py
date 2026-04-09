@@ -53,8 +53,11 @@ def _extract_dates_ollama(prompt: str) -> tuple[str | None, str | None]:
 
 def _extract_dates_regex(prompt: str) -> tuple[str | None, str | None]:
     """Regex-based date extraction (deterministic, always available)."""
-    from src.agent.tools import extract_dates_regex
-    return extract_dates_regex(prompt)
+    from src.agent.tools import regex_extract_dates
+    result = regex_extract_dates(prompt)
+    if result is None:
+        return None, None
+    return result
 
 
 @router.post("/generate", response_model=AgentResponse)

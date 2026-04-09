@@ -54,7 +54,16 @@ def predict_fraud(request: Request, body: FraudRequest):
     if feature_cols:
         df = df[feature_cols]
 
-    prob = model.predict(df)[0]
+    # Convert categorical columns to match training dtype
+    cat_cols = ["use_chip", "card_brand", "card_type"]
+    for col in cat_cols:
+        if col in df.columns:
+            df[col] = df[col].astype("category")
+
+    raw_score = model.predict(df)[0]
+    # Focal loss returns raw logits — apply sigmoid to get probability
+    import math
+    prob = 1.0 / (1.0 + math.exp(-raw_score))
     is_fraud = bool(prob >= FRAUD_THRESHOLD)
 
     return FraudResponse(

@@ -169,17 +169,23 @@ def export_forecast_models():
         """).df()
         con.close()
 
-    features_df = build_features(monthly_df)
+    # Ensure demo_df has the expected column names
+    if "id" in demo_df.columns and "client_id" not in demo_df.columns:
+        demo_df = demo_df.rename(columns={"id": "client_id"})
 
-    # Merge demographics
-    if "client_id" in demo_df.columns:
-        features_df = features_df.merge(demo_df, on="client_id", how="left")
+    features_df = build_features(monthly_df, demo_df)
 
     # Train 3 models (h=1, h=2, h=3)
-    feature_cols = [c for c in features_df.columns if c not in [
+    # Exclude non-numeric columns (strings from demographics join)
+    exclude_cols = {
         "client_id", "expense_month", "total_expenses",
         "target_h1", "target_h2", "target_h3",
-    ]]
+    }
+    feature_cols = [
+        c for c in features_df.columns
+        if c not in exclude_cols
+        and features_df[c].dtype in ["float64", "float32", "int64", "int32", "bool", "Float64", "Int64"]
+    ]
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
