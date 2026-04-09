@@ -1,0 +1,9 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - AGENT_LLM_BACKEND=regex
+      - MODELS_DIR=/app/outputs/models
+    restart: unless-stopped
