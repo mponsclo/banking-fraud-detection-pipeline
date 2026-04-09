@@ -38,8 +38,11 @@ dist/
 htmlcov/
 .ipynb_checkpoints/
 
-# Models
+# Models (global ignore, but outputs/models/ is tracked for Docker CI builds)
 *.pkl
+!outputs/
+!outputs/models/
+!outputs/models/*.pkl
 
 # Project
 CLAUDE.md
@@ -95,5 +98,6 @@ terraform/**/*.tfvars
 terraform/.terraform.lock.hcl
 terraform/bootstrap/.terraform.lock.hcl
 
-# Model artifacts (rebuilt via scripts/export_models.py)
-outputs/models/
+# Model artifacts — committed so Docker CI builds include them
+# Rebuild with: make export-models
+# outputs/models/  (intentionally tracked)
