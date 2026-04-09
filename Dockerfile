@@ -11,7 +11,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ src/
 COPY app/ app/
-COPY outputs/ outputs/
+
+# Model artifacts — must be built before docker build (make export-models)
+# Create directory even if empty so the app starts without models
+RUN mkdir -p outputs/models
+COPY outputs/models/ outputs/models/
 
 EXPOSE 8080
 

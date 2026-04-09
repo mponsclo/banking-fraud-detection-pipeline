@@ -158,16 +158,11 @@ def export_forecast_models():
             f"SELECT * FROM `{BQ_PROJECT}.landing.users_data`"
         ).to_dataframe()
     except Exception:
-        import duckdb
-        con = duckdb.connect()
-        demo_df = con.sql("""
-            SELECT id as client_id, current_age, credit_score,
-                REPLACE(REPLACE(yearly_income, '$', ''), ',', '')::DOUBLE as yearly_income,
-                REPLACE(REPLACE(total_debt, '$', ''), ',', '')::DOUBLE as total_debt,
-                num_credit_cards
-            FROM read_csv_auto('data/raw/users_data.csv', header=true)
-        """).df()
-        con.close()
+        demo_df = pd.read_csv("data/raw/users_data.csv")
+        demo_df = demo_df.rename(columns={"id": "client_id"})
+        for col in ["per_capita_income", "yearly_income", "total_debt"]:
+            if col in demo_df.columns and demo_df[col].dtype == object:
+                demo_df[col] = demo_df[col].str.replace(r"[\$,]", "", regex=True).astype(float)
 
     # Ensure demo_df has the expected column names
     if "id" in demo_df.columns and "client_id" not in demo_df.columns:
