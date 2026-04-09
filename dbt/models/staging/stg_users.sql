@@ -1,6 +1,6 @@
 with source as (
     select *
-    from read_csv_auto('../data/raw/users_data.csv', header=true)
+    from {{ ref('users_data') }}
 )
 
 select
@@ -13,9 +13,9 @@ select
     address,
     latitude,
     longitude,
-    replace(replace(per_capita_income, '$', ''), ',', '')::double as per_capita_income,
-    replace(replace(yearly_income, '$', ''), ',', '')::double as yearly_income,
-    replace(replace(total_debt, '$', ''), ',', '')::double as total_debt,
+    CAST(per_capita_income AS FLOAT64) as per_capita_income,
+    CAST(yearly_income AS FLOAT64) as yearly_income,
+    CAST(total_debt AS FLOAT64) as total_debt,
     credit_score,
     num_credit_cards
 from source

@@ -2,6 +2,10 @@ caixabank:
   target: dev
   outputs:
     dev:
-      type: duckdb
-      path: "../data/dbt_output/caixabank.duckdb"
+      type: bigquery
+      method: oauth
+      project: mpc-caixabank-ai
+      location: europe-southwest1
+      dataset: landing
       threads: 4
+      timeout_seconds: 600

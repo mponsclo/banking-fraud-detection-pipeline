@@ -2,17 +2,15 @@ version: 2
 
 sources:
   - name: raw
-    description: Raw data files from the hackathon
+    description: Raw data loaded into BigQuery landing dataset
+    database: mpc-caixabank-ai
+    schema: landing
     tables:
       - name: transactions_data
-        description: Credit card transactions for the 2010s decade
-        meta:
-          external_location: "../data/raw/transactions_data.csv"
+        description: Credit card transactions for the 2010s decade (loaded via bq load from GCS)
+      - name: train_fraud_labels
+        description: Binary fraud labels per transaction (loaded via bq load from GCS)
       - name: users_data
-        description: Client demographic and financial information
-        meta:
-          external_location: "../data/raw/users_data.csv"
+        description: Client demographic and financial information (dbt seed)
       - name: cards_data
-        description: Credit and debit card details per client
-        meta:
-          external_location: "../data/raw/cards_data.csv"
+        description: Credit and debit card details per client (dbt seed)

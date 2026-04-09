@@ -6,13 +6,17 @@ profile: 'caixabank'
 model-paths: ["models"]
 seed-paths: ["seeds"]
 test-paths: ["tests"]
+macro-paths: ["macros"]
 clean-targets: ["target", "dbt_packages"]
 
 models:
   caixabank_analytics:
     staging:
       +materialized: view
+      +schema: landing
     intermediate:
       +materialized: view
+      +schema: logic
     marts:
       +materialized: table
+      +schema: presentation

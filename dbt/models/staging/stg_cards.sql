@@ -1,6 +1,6 @@
 with source as (
     select *
-    from read_csv_auto('../data/raw/cards_data.csv', header=true)
+    from {{ ref('cards_data') }}
 )
 
 select
@@ -13,14 +13,14 @@ select
     cvv,
     has_chip = 'YES' as has_chip,
     num_cards_issued,
-    replace(replace(credit_limit, '$', ''), ',', '')::double as credit_limit,
+    CAST(credit_limit AS FLOAT64) as credit_limit,
     acct_open_date,
     year_pin_last_changed,
     card_on_dark_web = 'Yes' as card_on_dark_web,
     -- derived: parse expiry date (MM/YYYY format)
-    make_date(
-        split_part(expires, '/', 2)::int,
-        split_part(expires, '/', 1)::int,
+    DATE(
+        CAST(SPLIT(expires, '/')[SAFE_OFFSET(1)] AS INT64),
+        CAST(SPLIT(expires, '/')[SAFE_OFFSET(0)] AS INT64),
         1
     ) as expiry_date
 from source

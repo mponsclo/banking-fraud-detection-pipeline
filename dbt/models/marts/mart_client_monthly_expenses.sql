@@ -1,14 +1,14 @@
 -- Monthly expense aggregation per client, used for Task 4 (expense forecasting)
 select
     client_id,
-    date_trunc('month', transaction_date)::date as expense_month,
-    sum(case when amount < 0 then abs(amount) else 0 end) as total_expenses,
-    count(case when amount < 0 then 1 end) as num_expense_transactions,
-    avg(case when amount < 0 then abs(amount) end) as avg_expense_amount,
-    max(case when amount < 0 then abs(amount) end) as max_expense_amount,
-    sum(case when amount > 0 then amount else 0 end) as total_earnings,
-    count(case when amount > 0 then 1 end) as num_earning_transactions,
-    count(*) as total_transactions
+    DATE_TRUNC(transaction_date, MONTH) as expense_month,
+    SUM(case when amount < 0 then ABS(amount) else 0 end) as total_expenses,
+    COUNT(case when amount < 0 then 1 end) as num_expense_transactions,
+    AVG(case when amount < 0 then ABS(amount) end) as avg_expense_amount,
+    MAX(case when amount < 0 then ABS(amount) end) as max_expense_amount,
+    SUM(case when amount > 0 then amount else 0 end) as total_earnings,
+    COUNT(case when amount > 0 then 1 end) as num_earning_transactions,
+    COUNT(*) as total_transactions
 from {{ ref('int_transactions_enriched') }}
-group by client_id, date_trunc('month', transaction_date)::date
+group by client_id, DATE_TRUNC(transaction_date, MONTH)
 order by client_id, expense_month

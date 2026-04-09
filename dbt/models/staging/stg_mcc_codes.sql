@@ -1,4 +1,4 @@
 select
-    mcc_code::integer as mcc,
+    CAST(mcc_code AS INT64) as mcc,
     category_name
 from {{ ref('mcc_codes') }}
