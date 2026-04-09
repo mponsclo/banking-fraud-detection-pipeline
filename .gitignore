@@ -84,3 +84,16 @@ dbt/.user.yml
 # virtual environment
 .myenv/
 myenv/
+
+# Terraform
+terraform/.terraform/
+terraform/**/.terraform/
+terraform/**/*.tfstate
+terraform/**/*.tfstate.backup
+terraform/**/*.tfvars
+!terraform/**/*.tfvars.enc
+terraform/.terraform.lock.hcl
+terraform/bootstrap/.terraform.lock.hcl
+
+# Model artifacts (rebuilt via scripts/export_models.py)
+outputs/models/
