@@ -1,12 +1,18 @@
-# CaixaBank Data AI Hackathon
+# Banking Fraud Detection Pipeline
 
-> **Note:** This project was developed as part of a data science hackathon organized by NUWE in partnership with CaixaBank. The original datasets are not included in this repository as they may contain proprietary data. See [Data](#data) for details on the expected input format.
+[![Lint](https://github.com/mponsclo/caixabank-data-ai-hackathon/actions/workflows/lint.yml/badge.svg)](https://github.com/mponsclo/caixabank-data-ai-hackathon/actions/workflows/lint.yml)
+[![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![dbt](https://img.shields.io/badge/dbt-BigQuery-orange.svg)](https://docs.getdbt.com/)
+[![FastAPI](https://img.shields.io/badge/serving-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
+[![GCP](https://img.shields.io/badge/infra-GCP%20%2F%20Terraform-4285F4.svg)](https://cloud.google.com/)
 
-## Overview
+End-to-end ML pipeline for detecting fraud in 13M credit card transactions (0.15% fraud rate) and forecasting client expenses. Data engineering with **dbt on BigQuery**, fraud detection with **LightGBM + Focal Loss**, expense forecasting with **direct multi-step regression**, served via **FastAPI on Cloud Run**, infrastructure managed with **Terraform**, CI/CD with **GitHub Actions + SOPS/KMS**.
 
-End-to-end data science pipeline for banking transaction analysis: data engineering with **dbt + BigQuery**, fraud detection with **LightGBM + Focal Loss**, expense forecasting with **direct multi-step regression**, and an AI-powered report agent with **LangChain**. Infrastructure managed with **Terraform** on GCP, served via **FastAPI on Cloud Run**, CI/CD with **GitHub Actions + SOPS/KMS**.
+> Built during a data science hackathon organized by NUWE in partnership with CaixaBank. The original datasets are not included (see [Data](#data)).
 
-**Results:** 5/5 tasks complete, 9/9 tests pass.
+## Results
 
 | Task | Score Metric | Result |
 |------|-------------|--------|
@@ -16,54 +22,183 @@ End-to-end data science pipeline for banking transaction analysis: data engineer
 | 4. Expense Forecast | R2 Score | R2=0.76 (near theoretical ceiling) |
 | 5. AI Agent | Pytest | 3/3 pass |
 
+**5/5 tasks complete, 9/9 tests pass.**
+
 ---
 
 ## Architecture
 
-### Data Pipeline (dbt + BigQuery)
+```mermaid
+graph TB
+  subgraph Data["Data Layer &mdash; dbt + BigQuery"]
+    direction LR
+    GCS["GCS / Seeds<br/><i>CSV uploads</i>"] --> Landing["landing<br/>staging views"]
+    Landing --> Logic["logic<br/>intermediate views"]
+    Logic --> Marts["presentation<br/>mart tables"]
+  end
 
-Instead of ad-hoc pandas preprocessing, the data layer uses a proper **dbt pipeline** with BigQuery as the warehouse — staging, intermediate, and mart layers with SQL-based transformations and schema tests across 3 datasets (`landing`, `logic`, `presentation`).
+  subgraph ML["ML Layer &mdash; LightGBM"]
+    direction LR
+    Fraud["Fraud Detection<br/>Focal Loss + Target Encoding<br/><b>BA=0.97 &bull; AUPRC=0.61</b>"]
+    Forecast["Expense Forecast<br/>Direct 3-step<br/><b>R2=0.76</b>"]
+  end
 
-![Data Model](data_model.png)
+  subgraph Serving["Serving &mdash; FastAPI on Cloud Run"]
+    API["/predict/fraud<br/>/predict/forecast<br/>/report/generate"]
+    Agent["AI Agent<br/>Vertex AI / Ollama / Regex"]
+  end
 
+  subgraph Infra["Infrastructure &mdash; Terraform"]
+    direction LR
+    TF["Terraform modules"] --> BQ["BigQuery<br/>3 datasets"]
+    TF --> CR["Cloud Run<br/>0-3 instances"]
+    TF --> AR["Artifact Registry"]
+    TF --> KMS["KMS + IAM + WIF"]
+  end
+
+  subgraph CICD["CI/CD &mdash; GitHub Actions"]
+    direction LR
+    TFW["validate / plan / apply"]
+    Docker["build / push / deploy"]
+    Lint["ruff lint"]
+  end
+
+  Marts --> Fraud
+  Marts --> Forecast
+  Fraud --> API
+  Forecast --> API
+  Agent --> API
 ```
-GCS/Seeds → [landing: staging views] → [logic: intermediate views] → [presentation: mart tables] → API
-```
 
-**Why dbt:** Reproducible transformations, testable SQL, self-documenting lineage. The `mart_fraud_features` table computes 60+ features (velocity, behavioral, error flags, geographic anomaly) entirely in SQL via window functions.
+---
 
-### Fraud Detection (Task 3)
+## Methodology
 
-**9 experiments** documented in [experiments.md](experiments.md), from a naive baseline (AUPRC≈0) to a production-grade model:
+### Data Engineering (dbt + BigQuery)
+
+Instead of ad-hoc pandas preprocessing, the data layer uses a **dbt pipeline** with BigQuery as the warehouse. Three datasets (`landing`, `logic`, `presentation`) with staging views, intermediate enrichment, and mart tables. The `mart_fraud_features` table computes 60+ features (velocity, behavioral, error flags, geographic anomaly) entirely in SQL via window functions. A custom `generate_schema_name` macro maps dbt models to BigQuery datasets cleanly.
+
+### Fraud Detection (LightGBM + Focal Loss)
+
+**9 experiments** documented in [experiments.md](experiments.md), from a naive baseline (AUPRC=0) to the final model:
 
 | Technique | Impact |
 |-----------|--------|
-| EDA-driven features (errors column, geographic anomaly) | AUPRC 0→0.43 |
-| Out-of-fold target encoding (MCC, merchant_id) | AUPRC 0.43→0.49 |
-| Focal loss (replaced scale_pos_weight) | AUPRC 0.49→0.57 |
-| Card age, gap z-score, spending anomaly features | AUPRC 0.57→0.61 |
-
-**Leakage caught:** Zip-based features inflated AUPRC to 0.89. Ablation study isolated the leak (client home zip computed from future data), features removed, honest metrics reported.
+| EDA-driven features (errors column, geographic anomaly) | AUPRC 0 &rarr; 0.43 |
+| Out-of-fold target encoding (MCC, merchant_id) | AUPRC 0.43 &rarr; 0.49 |
+| Focal loss (replaced scale_pos_weight) | AUPRC 0.49 &rarr; 0.57 |
+| Card age, gap z-score, spending anomaly features | AUPRC 0.57 &rarr; 0.61 |
 
 **Final model:** LightGBM + Focal Loss (gamma=2.0, alpha=0.25) + target encoding. Production operating point: 64% precision, 57% recall.
 
-### Expense Forecast (Task 4)
+### Expense Forecasting (Direct Multi-Step)
 
-Global LightGBM with **direct multi-step forecasting** (separate model per horizon h=1,2,3).
+Global LightGBM with **direct multi-step forecasting** (separate model per horizon h=1,2,3). Walk-forward validated with 8 folds, reporting R2=0.76, MAE=$239, RMSE=$314.
 
-**Key finding:** 77% of variance is between-client (spending level), autocorrelation ≈ 0, no seasonality. R2=0.76 is near the theoretical ceiling (~0.80-0.84). Validated by testing 7 alternative approaches (blending, residual modeling, two-stage, EWMA) — all converge to ~0.76.
+### AI Agent (LangChain + Regex Fallback)
 
-Walk-forward validated with 8 folds, reporting R2, MAE ($239), and RMSE ($314).
-
-### AI Agent (Task 5)
-
-Hybrid architecture: 3-layer LLM strategy (Vertex AI Gemini scaffold, Ollama for local dev, regex fallback as default) + **deterministic pipeline** for client validation, data analysis, and PDF generation.
-
-Regex fallback ensures reliability. Handles ordinal months ("fourth month of 2017"), explicit ISO ranges, month names, and quarters.
+Hybrid architecture: 3-layer LLM strategy (Vertex AI Gemini scaffold, Ollama for local dev, regex fallback as default) + deterministic pipeline for client validation, data analysis, and PDF generation. Regex fallback ensures all tests pass without LLM dependencies.
 
 ### Infrastructure (Terraform + GCP)
 
-Two-phase Terraform: bootstrap (project, KMS, SAs, WIF) + main config (BigQuery, Cloud Run, Artifact Registry). Workload Identity Federation for keyless GitHub → GCP auth. SOPS/KMS-encrypted secrets.
+Two-phase Terraform: bootstrap (project, KMS, SAs, WIF) + main config (BigQuery, Cloud Run, Artifact Registry). Workload Identity Federation for keyless GitHub &rarr; GCP auth. SOPS/KMS-encrypted secrets committed to repo, decryptable only by authorized identities.
+
+---
+
+## Lessons Learned
+
+### Catching Data Leakage via Ablation
+
+Initial deep feature engineering produced AUPRC=0.89 -- a suspiciously large jump. An ablation study (adding features one at a time) isolated the leak: **zip-based features alone caused a +0.30 AUPRC jump**. The root cause was a `client_home_zip` CTE that computed each client's most frequent zip from ALL transactions including future ones. For a 2012 transaction, the model could see 2019 zip data. Further analysis confirmed the signal was inverted -- fraud was actually MORE common at the home zip (0.21% vs 0.04%), meaning the model was using zip as a proxy for time period, not fraud risk. After removing zip features: honest AUPRC=0.61, still a +7% improvement over the prior experiment.
+
+**Takeaway:** When using temporal data splits, validate that every feature is computable at prediction time using only historical data. Ablation studies are the fastest way to isolate leakage.
+
+### Focal Loss > Class Weights for Extreme Imbalance
+
+At a 0.15% fraud rate, the standard approach of tuning `scale_pos_weight` capped out at AUPRC=0.49. Switching to focal loss (gamma=2.0, alpha=0.25) jumped AUPRC to 0.58 (+19%) -- the single largest improvement from any experiment. The key insight: focal loss down-weights easy negatives so the gradient concentrates on hard-to-classify examples, while `scale_pos_weight` uniformly upweights all positives regardless of difficulty. Both precision and recall improved simultaneously, which is rare and signals a better-calibrated model.
+
+### R2 Ceiling Analysis: Knowing When to Stop
+
+Initial walk-forward validation reported R2=0.96. Deep audit found that 77% of total variance was between-client (spending level), not within-client temporal patterns. Per-client R2 median was 0.67, with 12% of clients having negative R2. After fixing data leakage in feature computation, honest R2 dropped to 0.76. Seven alternative approaches were tested (blending, residual modeling, two-stage, EWMA) -- all converged to ~0.76, confirming the ceiling. Within-client autocorrelation was ~0, YoY seasonality ~0, and 57% of clients had CV>0.7. The remaining ~24% variance is irreducible without external data.
+
+**Takeaway:** When multiple fundamentally different approaches converge to the same metric, you've likely hit the dataset's ceiling. Variance decomposition (between vs. within) is a fast way to identify this.
+
+### Failed Ensemble: Temporal Distribution Shift
+
+Stacking (LightGBM + XGBoost + Logistic Regression meta-learner) with a 3-way temporal split caused AUPRC to collapse from 0.58 to 0.02. The stacking set landed in a period with 0.06% fraud (vs 0.15% base rate), creating a distribution shift that broke the meta-learner. Ensemble stacking with temporal data requires that train/stack/validation periods have comparable distributions -- or you need stratified temporal sampling.
+
+---
+
+## Production Roadmap
+
+The project implements IaC, CI/CD, typed APIs, and data quality testing. These items would complete the production story:
+
+| Gap | Current State | Production Target |
+|-----|--------------|-------------------|
+| **Data ingestion** | One-time CSV load to GCS | Pub/Sub + Cloud Functions for streaming transaction ingestion |
+| **Feature store** | Features computed in dbt mart | Vertex AI Feature Store for real-time fraud scoring |
+| **Model registry** | pkl files baked into Docker image | Vertex AI Model Registry with versioning + A/B deployment |
+| **Model monitoring** | None | Log predictions to BQ `predictions_log`, scheduled drift detection (PSI) |
+| **Integration tests** | 9 pytest tests (local only) | API contract tests in CI + BigQuery data quality checks |
+| **Alerting** | Budget alerts only | Cloud Monitoring uptime checks on `/health`, error rate alerts |
+| **LLM agent** | Vertex AI scaffold (inactive) + regex default | Activate Vertex AI Gemini via `AGENT_LLM_BACKEND=vertex` |
+| **Batch scoring** | On-demand scripts | Cloud Scheduler + Cloud Run Jobs for daily fraud scoring |
+
+---
+
+## Quick Start
+
+```bash
+# Clone and set up environment
+git clone https://github.com/mponsclo/caixabank-data-ai-hackathon.git
+cd caixabank-data-ai-hackathon
+python -m venv venv && source venv/bin/activate
+
+# Install dependencies
+make install
+
+# Authenticate and build data pipeline
+gcloud auth application-default login
+make load-data      # one-time: upload large CSVs to GCS + BigQuery
+make dbt-build      # seed + run + test on BigQuery
+
+# Train and export models
+make export-models  # serialize to outputs/models/
+
+# Run API locally
+make serve          # http://localhost:8080/docs
+
+# Run tests
+make test           # 9/9 should pass
+
+# Code quality
+make lint           # ruff check + format check
+make format         # auto-fix + format
+```
+
+---
+
+## API Reference
+
+```bash
+# Health check
+curl http://localhost:8080/health
+
+# Fraud prediction
+curl -X POST http://localhost:8080/predict/fraud \
+  -H "Content-Type: application/json" \
+  -d '{"transaction_id": "123", "amount": -150.0, "use_chip": "Online Transaction", "mcc": 5411, "merchant_id": 100, "is_online": 1, "txn_hour": 3, "credit_limit": 5000}'
+
+# Expense forecast
+curl -X POST http://localhost:8080/predict/forecast \
+  -H "Content-Type: application/json" \
+  -d '{"client_id": 0}'
+
+# Report generation
+curl -X POST http://localhost:8080/report/generate \
+  -H "Content-Type: application/json" \
+  -d '{"client_id": 0, "prompt": "Create a report for the fourth month of 2017"}'
+```
 
 ---
 
@@ -71,85 +206,40 @@ Two-phase Terraform: bootstrap (project, KMS, SAs, WIF) + main config (BigQuery,
 
 The datasets are **not included** in this repository. To reproduce the results, you would need:
 
-- `data/raw/transactions_data.csv` — Credit card transactions dataset (2010s decade) with columns: transaction ID, client ID, card ID, amount, merchant, MCC code, timestamps, errors, etc.
-- `data/raw/mcc_codes.json` — Merchant Category Code mappings (109 categories).
-- `data/raw/train_fraud_labels.json` — Binary fraud labels for training the detection model.
+- `data/raw/transactions_data.csv` -- Credit card transactions dataset (2010s decade) with columns: transaction ID, client ID, card ID, amount, merchant, MCC code, timestamps, errors, etc.
+- `data/raw/mcc_codes.json` -- Merchant Category Code mappings (109 categories).
+- `data/raw/train_fraud_labels.json` -- Binary fraud labels for training the detection model.
 - Client and card data were fetched from APIs (no longer available) and stored as `clients_data_api.csv` and `card_data_api.csv`.
 
 ---
 
-## How to Run
-
-```bash
-# Setup
-make install
-gcloud auth application-default login
-
-# Load data into BigQuery (one-time)
-make load-data
-
-# Build dbt pipeline
-make dbt-build
-
-# Export models for API serving
-make export-models
-
-# Run API locally
-make serve        # http://localhost:8080/docs
-
-# Run tests
-make test         # 9/9 should pass
-```
-
----
-
-## Key Technical Decisions
-
-1. **dbt + BigQuery over pandas for data prep** — SQL-based feature engineering is more maintainable and testable than pandas chains. Window functions for velocity/behavioral features are cleaner in SQL.
-
-2. **Focal loss over class weights** — For 0.15% fraud rate, focal loss (gamma=2.0) outperformed scale_pos_weight tuning by focusing gradient updates on hard-to-classify examples.
-
-3. **Direct over recursive forecasting** — Three separate horizon models avoid error propagation. Since autocorrelation ≈ 0, there's no temporal structure for recursive to exploit.
-
-4. **3-layer LLM strategy** — Vertex AI Gemini scaffold (production-ready), Ollama (local dev), regex fallback (deterministic default). Controlled by `AGENT_LLM_BACKEND` env var.
-
-5. **Workload Identity Federation** — No service account keys stored anywhere. GitHub Actions authenticates via OIDC tokens.
-
-6. **Parameterized SQL everywhere** — `con.execute(query, [params])` instead of f-strings to prevent SQL injection.
-
----
-
-## Repository Structure
+## Project Structure
 
 ```
 ├── terraform/                  # Infrastructure as Code (GCP)
 │   ├── bootstrap/              # One-time: project, KMS, SAs, WIF
 │   └── modules/                # iam, kms, bigquery, cloud_run, artifact_registry, workload_identity
-├── .github/workflows/          # CI/CD: validate, plan, apply, deploy
+├── .github/workflows/          # CI/CD: validate, plan, apply, deploy, lint
 ├── app/                        # FastAPI serving layer
 │   └── routers/                # health, fraud, forecast, agent
 ├── dbt/                        # dbt-BigQuery data pipeline
-│   ├── models/
-│   │   ├── staging/            # 4 views: stg_transactions, stg_users, stg_cards, stg_mcc_codes
-│   │   ├── intermediate/       # 2 views: int_transactions_enriched, int_client_transactions
-│   │   └── marts/              # 2 tables: mart_fraud_features, mart_client_monthly_expenses
-│   ├── seeds/                  # mcc_codes.csv, users_data.csv, cards_data.csv
-│   └── macros/                 # generate_schema_name (BigQuery dataset routing)
+│   ├── models/                 # staging → intermediate → marts
+│   ├── seeds/                  # Reference data (MCC codes, users, cards)
+│   └── macros/                 # BigQuery schema routing
 ├── scripts/                    # Data loading + model export
-├── src/                        # Hackathon ML code (local dev, DuckDB for tests)
+├── src/                        # ML models + agent (hackathon code, DuckDB for tests)
 │   ├── data/                   # Task 1 queries, Task 2 functions
 │   ├── models/                 # Task 3 fraud model, Task 4 forecast model
 │   └── agent/                  # Task 5 AI agent
-├── predictions/                # JSON outputs for Tasks 1, 3, 4
-├── tests/                      # Hackathon test suite
-├── experiments.md              # Full experiment log (11 experiments)
-└── reports/figures/            # Generated plots
+├── tests/                      # Hackathon test suite (9 tests)
+├── experiments.md              # Full experiment log (11 experiments, ablation studies)
+├── Dockerfile                  # python:3.10-slim + uvicorn
+├── Makefile                    # install, dbt-build, export-models, serve, lint, test
+└── pyproject.toml              # Ruff linter configuration
 ```
 
-## Experiment Tracking
-
-Full experiment logs with metrics, ablation studies, and root cause analysis are in [experiments.md](experiments.md) — 11 experiments total across fraud detection and expense forecasting.
+---
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+[MIT](LICENSE)
