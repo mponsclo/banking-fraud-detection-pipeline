@@ -172,6 +172,22 @@ The service account is `cloud-run-sa` with `bigquery.dataViewer` + `bigquery.job
 
 The [`docker-build-deploy.yml`](../.github/workflows/docker-build-deploy.yml) workflow triggers on pushes to main that touch `app/`, `src/`, `outputs/`, `Dockerfile`, or `requirements.txt`. It builds the image, pushes to Artifact Registry, and deploys to Cloud Run via Workload Identity Federation (no service account keys). The `production` GitHub Environment requires manual approval before deploy.
 
+### Scaling beyond Cloud Run
+
+The current setup (synchronous FastAPI on Cloud Run) works well for low-to-moderate traffic where each transaction needs a response in real time. But at scale, not every use case needs a synchronous API.
+
+**Batch scoring with Dataflow.** For scenarios like end-of-day fraud review or monthly expense forecasts for all clients, you don't need real-time responses. Apache Beam on Dataflow can read transactions directly from BigQuery, apply the same LightGBM model in parallel across thousands of workers, and write scored results back to BigQuery. This is more cost-effective than keeping Cloud Run instances alive for bulk scoring, and it scales horizontally without worrying about request timeouts or concurrency limits. The model serialization format (`.pkl`) works the same way in a Beam `DoFn` as it does in a FastAPI endpoint.
+
+**Streaming scoring with Dataflow.** You can also use Dataflow in streaming mode to score transactions as they arrive through the [ingestion pipeline](1-ingestion.md). Instead of (or in addition to) the consumer Cloud Function writing raw transactions to BigQuery, a Dataflow pipeline could read from the Pub/Sub topic, deserialize the Protobuf message, compute features from a feature store, score with the model, and write both the raw transaction and its fraud score to BigQuery in a single pass. This eliminates the need for a separate API call and reduces end-to-end latency.
+
+**When to use which:**
+
+| Pattern | Use case | Latency | Cost model |
+|---------|----------|---------|------------|
+| **Cloud Run (current)** | Real-time, per-transaction scoring | ~100ms | Pay per request |
+| **Dataflow batch** | End-of-day bulk scoring, backfills | Minutes | Pay per vCPU-hour |
+| **Dataflow streaming** | Score as transactions arrive | Seconds | Pay per vCPU-hour (always on) |
+
 ## API Reference
 
 ```bash
