@@ -2,51 +2,27 @@
 
 Layered SQL transformations from raw CSVs to ML-ready feature tables.
 
-## Architecture
+## Why This Layer Exists
 
-```mermaid
-graph TD
-  subgraph Landing["landing (raw data)"]
-    direction LR
-    TXN["transactions_data<br/><i>13M rows, bq load</i>"]
-    USERS["users_data<br/><i>dbt seed</i>"]
-    CARDS["cards_data<br/><i>dbt seed</i>"]
-    MCC["mcc_codes<br/><i>dbt seed</i>"]
-  end
+Raw transaction data is messy: amounts are strings with dollar signs, error codes are comma-separated text, boolean fields are `"YES"/"NO"` strings, and there's no feature engineering at all. Before any ML model can use this data, it needs to be cleaned, enriched with reference data, and transformed into meaningful features.
 
-  subgraph Staging["staging (cleaned views)"]
-    direction LR
-    STG_T["stg_transactions<br/><i>parse errors, normalize</i>"]:::compute
-    STG_U["stg_users<br/><i>clean $ amounts</i>"]:::compute
-    STG_C["stg_cards<br/><i>parse chip, expiry</i>"]:::compute
-    STG_M["stg_mcc_codes<br/><i>normalize codes</i>"]:::compute
-  end
+Instead of doing all of this in pandas (which would be a single monolithic script, hard to test, impossible to audit), the transformation layer uses **dbt on BigQuery**. Each transformation step is a SQL model with a clear purpose, documented columns, schema tests, and a lineage graph that shows exactly how data flows from raw to ML-ready.
 
-  subgraph Intermediate["intermediate (enriched views)"]
-    INT_TE["int_transactions_enriched<br/><i>joins: txn + MCC + card + user</i>"]:::compute
-    INT_CT["int_client_transactions"]:::compute
-  end
+The pipeline processes 13M transactions through three layers (staging → intermediate → marts) and produces 60+ fraud detection features, all computed in SQL via window functions.
 
-  subgraph Marts["presentation (mart tables)"]
-    FRAUD["mart_fraud_features<br/><b>60+ features</b><br/><i>window functions</i>"]:::storage
-    EXPENSES["mart_client_monthly_expenses<br/><i>monthly aggregation</i>"]:::storage
-  end
+## Data Model
 
-  TXN --> STG_T
-  USERS --> STG_U
-  CARDS --> STG_C
-  MCC --> STG_M
-  STG_T --> INT_TE
-  STG_U --> INT_TE
-  STG_C --> INT_TE
-  STG_M --> INT_TE
-  STG_T --> INT_CT
-  INT_TE --> FRAUD
-  INT_TE --> EXPENSES
+The source data consists of three entities: users, transactions, and cards.
 
-  classDef compute fill:#d5f5e3,stroke:#1e8449,color:#1a1a1a
-  classDef storage fill:#d6eaf8,stroke:#2e86c1,color:#1a1a1a
-```
+![Entity Relationship Diagram](data-model-erd.png)
+
+Transactions reference both users (via `client_id`) and cards (via `card_id`). Each client can have multiple cards, and each card can have many transactions. The `mcc` field in transactions maps to a separate MCC codes reference table (not shown) that provides human-readable category names.
+
+## Data Lineage
+
+![dbt Lineage Graph](dbt-lineage.png)
+
+The lineage graph above (from `dbt docs serve`) shows the full data flow. Sources and seeds on the left, staging views in the middle, and mart tables on the right. Every arrow is a dependency that dbt tracks and rebuilds automatically.
 
 ## Three-Layer Architecture
 
@@ -59,6 +35,12 @@ The pipeline follows the staging → intermediate → marts pattern across three
 | **Marts** | `presentation` | Tables | Final feature engineering for ML models |
 
 A custom [`generate_schema_name`](../dbt/macros/generate_schema_name.sql) macro maps dbt's `+schema` config directly to BigQuery dataset names. Without it, dbt would generate compound names like `landing_staging` instead of just `landing`.
+
+### A note on seeds vs sources
+
+In this project, users, cards, and MCC codes are loaded as **dbt seeds** (small CSV files committed to the repo). The transactions table is loaded as a **source** via `bq load` from GCS because of its size (1.2GB).
+
+In a production system, all of these would come from the landing tables populated by the [ingestion pipeline](1-ingestion.md). The seeds are a convenience for this project, but the staging SQL is written so that swapping `{{ ref('users_data') }}` for `{{ source('raw', 'users_data') }}` is a one-line change per model.
 
 ## Staging Layer
 
@@ -90,11 +72,11 @@ Two views that enrich transactions with master data:
 
 ### int_transactions_enriched
 
-Joins all four staging views into a single denormalized view: transactions + MCC category names + card attributes (chip, credit limit, card brand/type, expiry) + user demographics (age, income, credit score, debt). This is the foundation for all downstream features.
+Joins staging transactions with MCC category names into a single denormalized view. This is the foundation for both mart tables downstream.
 
 ### int_client_transactions
 
-Client-level transaction view with user and card attributes joined, used for behavioral features.
+Extends `int_transactions_enriched` by joining client demographics (age, income, credit score, debt) and card attributes (chip, credit limit, card brand/type, expiry). Provides a complete view of each transaction with its user and card context.
 
 ## Marts Layer
 
@@ -112,68 +94,6 @@ The centerpiece of the project: [`dbt/models/marts/mart_fraud_features.sql`](../
 | **Geographic** | 2 | `is_online`, `is_out_of_home_state` | Online transactions = 28x fraud rate vs swipe (from EDA) |
 | **Card/User** | 8 | `credit_limit`, `card_has_chip`, `card_age_months`, `credit_score`, `total_debt`, `yearly_income`, `debt_to_income_ratio` | Card age and credit profile correlate with fraud risk |
 | **Combined Signals** | 4 | `online_new_merchant`, `online_high_amount`, `oos_new_merchant`, `error_online` | Interaction features that capture compound risk |
-
-### Key SQL Patterns
-
-**Named windows for velocity features:**
-
-BigQuery's `RANGE BETWEEN` requires a numeric ORDER BY column. Timestamps don't work directly, so we convert to epoch seconds. Named `WINDOW` clauses keep things readable when the same partitioning is reused across multiple features:
-
-```sql
-SELECT
-    *
-    , COUNT(*) OVER card_1h - 1 AS card_txn_count_1h
-    , COUNT(*) OVER card_24h - 1 AS card_txn_count_24h
-    , COUNT(*) OVER card_7d - 1 AS card_txn_count_7d
-    , SUM(ABS(amount)) OVER card_24h - ABS(amount) AS card_amount_sum_24h
-FROM base
-WINDOW
-    card_1h AS (PARTITION BY card_id ORDER BY txn_epoch RANGE BETWEEN 3600 PRECEDING AND CURRENT ROW),
-    card_24h AS (PARTITION BY card_id ORDER BY txn_epoch RANGE BETWEEN 86400 PRECEDING AND CURRENT ROW),
-    card_7d AS (PARTITION BY card_id ORDER BY txn_epoch RANGE BETWEEN 604800 PRECEDING AND CURRENT ROW)
-```
-
-This counts transactions per card in rolling 1-hour, 24-hour, and 7-day windows, computed entirely in SQL without Python.
-
-**QUALIFY for CTE simplification:**
-
-The `client_home_state` and `client_home_zip` CTEs compute each client's most frequent value. Instead of nesting a subquery with `ROW_NUMBER()` and filtering with `WHERE rn = 1`, we use `QUALIFY` to do it in a single pass:
-
-```sql
-WITH client_home_state AS (
-    SELECT
-        client_id
-        , merchant_state AS home_state
-    FROM {{ ref('stg_transactions') }}
-    WHERE TRUE
-      AND merchant_state IS NOT NULL
-      AND merchant_state != ''
-    GROUP BY ALL
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY client_id ORDER BY COUNT(*) DESC) = 1
-)
-```
-
-**IF() for boolean features:**
-
-Simple two-outcome conditions use `IF()` instead of the more verbose `CASE WHEN ... THEN ... ELSE ... END`:
-
-```sql
-, IF(EXTRACT(DAYOFWEEK FROM t.transaction_date) IN (1, 7), 1, 0) AS is_weekend
-, IF(card_merchant_freq = 0, 1, 0) AS is_new_merchant
-, IF(has_any_error = 1 AND is_online = 1, 1, 0) AS error_online
-```
-
-`CASE WHEN` is reserved for multi-condition logic like `card_age_months` (date parsing with NULL handling).
-
-**COUNTIF and SUM(IF()) for conditional aggregation:**
-
-In `mart_client_monthly_expenses`, conditional aggregation avoids verbose `CASE WHEN` inside aggregate functions:
-
-```sql
-, SUM(IF(amount < 0, ABS(amount), 0)) AS total_expenses
-, COUNTIF(amount < 0) AS num_expense_transactions
-, AVG(IF(amount < 0, ABS(amount), NULL)) AS avg_expense_amount
-```
 
 ### mart_client_monthly_expenses
 
@@ -226,16 +146,27 @@ make dbt-seed    # Load seeds (users, cards, MCC codes) into landing
 make dbt-run     # Run all models (staging → intermediate → marts)
 make dbt-test    # Run schema tests
 
+# Browse documentation with lineage graph
+make dbt-docs    # http://localhost:8081
+
 # Rebuild a single model
 cd dbt && dbt run --select mart_fraud_features --profiles-dir .
 ```
 
 All commands run from the `dbt/` directory with `--profiles-dir .` to use the local [`profiles.yml`](../dbt/profiles.yml).
 
+## Scaling Considerations
+
+This pipeline works well at 13M rows, but it would need significant redesign at petabyte scale:
+
+**Incremental materialization.** The marts currently do full rebuilds on every `dbt run`. At scale, you would need incremental models that only process new rows. This is not trivial for window functions: features like `card_txn_count_24h` depend on a rolling window of historical data, so you can't just process the new rows in isolation. You'd need to recompute features for a trailing window around each new batch, which requires careful partition design and merge logic.
+
+**Window function performance.** The `PARTITION BY card_id ORDER BY txn_epoch RANGE BETWEEN ...` patterns work fine on 13M rows (BigQuery handles them in seconds), but they become expensive at scale. Each window function scans the full partition for every row. At hundreds of millions of rows per card, you'd likely need to pre-aggregate into time buckets, use materialized views for rolling counts, or move velocity features to a feature store that computes them incrementally as events arrive.
+
+**COUNT(DISTINCT) limitations.** BigQuery doesn't support `COUNT(DISTINCT)` as an analytic function. The current workaround (approximation via transaction counts) is honest but imprecise. At scale, you'd use `APPROX_COUNT_DISTINCT` (HyperLogLog) or compute exact distinct counts in a pre-aggregation step.
+
 ## Known Limitations
 
 1. **`is_out_of_home_state` has mild leakage**: the client home state is computed from ALL transactions including future ones. Kept for consistency across experiments (documented in [experiments.md](../experiments.md)).
 
-2. **COUNT(DISTINCT) features are approximate**: correlated subqueries on 13M rows time out in BigQuery for some clients. In production, use `APPROX_COUNT_DISTINCT` or a feature store.
-
-3. **No incremental materialization**: marts are full rebuilds. For a production pipeline ingesting daily data, switch to `materialized='incremental'` with `unique_key='transaction_id'`.
+2. **Seeds instead of landing tables**: users, cards, and MCC codes are loaded as dbt seeds rather than from the ingestion pipeline's landing tables. In production, these would come from the same Pub/Sub → BigQuery path described in the [ingestion guide](1-ingestion.md).
