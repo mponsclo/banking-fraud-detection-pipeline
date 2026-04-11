@@ -37,6 +37,9 @@ dist/
 .coverage
 htmlcov/
 .ipynb_checkpoints/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
 
 # Models (global ignore, but outputs/models/ is tracked for Docker CI builds)
 *.pkl
