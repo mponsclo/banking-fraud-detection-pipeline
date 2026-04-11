@@ -30,6 +30,14 @@ End-to-end ML pipeline for detecting fraud in 13M credit card transactions (0.15
 
 ```mermaid
 graph TB
+  subgraph Ingestion["Ingestion Pipeline &mdash; Cloud Functions + Pub/Sub"]
+    direction LR
+    Scheduler["Cloud Scheduler<br/><i>daily cron</i>"] --> Producer["Producer<br/>Cloud Function"]
+    Producer -->|Protobuf| PubSub["Pub/Sub<br/>transactions-ingestion"]
+    PubSub --> Consumer["Consumer<br/>Cloud Function"]
+    PubSub -.->|failed| DLQ["DLQ Topic"]
+  end
+
   subgraph Data["Data Layer &mdash; dbt + BigQuery"]
     direction LR
     GCS["GCS / Seeds<br/><i>CSV uploads</i>"] --> Landing["landing<br/>staging views"]
@@ -54,6 +62,7 @@ graph TB
     TF --> CR["Cloud Run<br/>0-3 instances"]
     TF --> AR["Artifact Registry"]
     TF --> KMS["KMS + IAM + WIF"]
+    TF --> FN["Cloud Functions<br/>+ Pub/Sub + Scheduler"]
   end
 
   subgraph CICD["CI/CD &mdash; GitHub Actions"]
@@ -63,6 +72,7 @@ graph TB
     Lint["ruff lint"]
   end
 
+  Consumer -->|streaming insert| Landing
   Marts --> Fraud
   Marts --> Forecast
   Fraud --> API
@@ -218,8 +228,13 @@ The datasets are **not included** in this repository. To reproduce the results, 
 ```
 ├── terraform/                  # Infrastructure as Code (GCP)
 │   ├── bootstrap/              # One-time: project, KMS, SAs, WIF
-│   └── modules/                # iam, kms, bigquery, cloud_run, artifact_registry, workload_identity
+│   └── modules/                # iam, kms, bigquery, cloud_run, artifact_registry,
+│                               # workload_identity, pubsub, cloud_functions
 ├── .github/workflows/          # CI/CD: validate, plan, apply, deploy, lint
+├── functions/                  # Cloud Functions (ingestion pipeline)
+│   ├── producer/               # HTTP-triggered: reads CSV chunks, publishes Protobuf to Pub/Sub
+│   └── consumer/               # EventArc-triggered: deserializes Protobuf, streams to BigQuery
+├── proto/                      # Protobuf schema (transaction.proto) + compiler script
 ├── app/                        # FastAPI serving layer
 │   └── routers/                # health, fraud, forecast, agent
 ├── dbt/                        # dbt-BigQuery data pipeline
