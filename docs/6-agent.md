@@ -90,7 +90,7 @@ The response is parsed as JSON. If the LLM returns extra text around the JSON (c
 
 ## Report Generation
 
-Once dates are extracted and the client is validated (exists in the dataset), the agent runs three analysis functions and combines their outputs into a PDF.
+Once dates are extracted and the client is validated (exists in the dataset), the agent runs three analysis functions and combines their outputs into a PDF. A [sample report](sample-agent-report.pdf) is included in this directory (Client 122, April 2017).
 
 ### Data analysis functions
 
