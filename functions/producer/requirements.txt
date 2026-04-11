@@ -1,0 +1,4 @@
+functions-framework==3.*
+google-cloud-pubsub==2.*
+google-cloud-storage==2.*
+protobuf>=4.25.0

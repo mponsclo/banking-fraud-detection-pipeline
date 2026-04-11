@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package pipeline;
+
+// Transaction message matching the landing.transactions_data schema.
+// Fields preserve the raw CSV format — parsing (e.g., "$-77.00" → float)
+// is handled downstream by the dbt staging layer (stg_transactions).
+message Transaction {
+  int64 id = 1;                   // Transaction ID
+  string date = 2;                // Timestamp: "2010-01-01 00:01:00"
+  int64 client_id = 3;
+  int64 card_id = 4;
+  string amount = 5;              // Dollar string: "$-77.00" or "$14.57"
+  string use_chip = 6;            // "Chip Transaction" | "Swipe Transaction" | "Online Transaction"
+  int64 merchant_id = 7;
+  string merchant_city = 8;       // City name or "ONLINE"
+  string merchant_state = 9;      // 2-letter US state code, empty for online
+  string zip = 10;                // ZIP as string ("58523.0"), empty for online
+  int64 mcc = 11;                 // Merchant Category Code (4-digit)
+  string errors = 12;             // Error type or empty string
+}
