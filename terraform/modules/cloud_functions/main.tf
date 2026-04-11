@@ -61,8 +61,9 @@ resource "google_cloudfunctions2_function" "producer" {
   service_config {
     min_instance_count    = 0
     max_instance_count    = 1
-    available_memory      = "512M" # CSV parsing needs memory
-    timeout_seconds       = 300    # Large chunk reads take time
+    available_memory      = "1Gi"  # CSV streaming + protobuf serialization
+    available_cpu         = "1"   # Required for 1Gi memory
+    timeout_seconds       = 300   # Large chunk reads take time
     service_account_email = var.pipeline_sa_email
 
     environment_variables = {
@@ -129,9 +130,10 @@ resource "google_cloudfunctions2_function" "consumer" {
 # ---------------------------------------------------------------------------
 
 resource "google_cloud_scheduler_job" "daily_ingestion" {
-  name      = "daily-transaction-ingestion"
-  project   = var.project_id
-  region    = var.region
+  name    = "daily-transaction-ingestion"
+  project = var.project_id
+  # Cloud Scheduler is not available in europe-southwest1; use nearest supported region
+  region = "europe-west1"
   schedule  = "0 9 * * *" # Daily at 09:00 UTC
   time_zone = "UTC"
 
