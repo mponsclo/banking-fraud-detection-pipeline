@@ -1,0 +1,75 @@
+version: 2
+
+models:
+  - name: int_transactions_enriched
+    description: >
+      Transactions joined with MCC category names. Adds merchant_category
+      as a human-readable label for each transaction's MCC code.
+    columns:
+      - name: transaction_id
+        description: Unique transaction identifier
+        tests:
+          - not_null
+      - name: transaction_date
+        description: Timestamp of the transaction
+      - name: client_id
+        description: Client who made the transaction
+      - name: card_id
+        description: Card used for the transaction
+      - name: amount
+        description: "Transaction amount (positive = earnings, negative = expenses)"
+      - name: use_chip
+        description: "Payment method: 'Chip Transaction', 'Swipe Transaction', or 'Online Transaction'"
+      - name: merchant_id
+        description: Unique merchant identifier
+      - name: merchant_city
+        description: City of the merchant
+      - name: merchant_state
+        description: 2-letter US state code of the merchant
+      - name: zip
+        description: ZIP code of the merchant
+      - name: mcc
+        description: Merchant Category Code
+      - name: errors
+        description: Error type if any occurred, NULL otherwise
+      - name: merchant_category
+        description: "Human-readable MCC category name (e.g., 'Grocery Stores'), defaults to 'Unknown'"
+
+  - name: int_client_transactions
+    description: >
+      Transactions enriched with client demographics and card attributes.
+      Joins int_transactions_enriched with stg_users and stg_cards to provide
+      a complete view of each transaction with its user and card context.
+    columns:
+      - name: transaction_id
+        description: Unique transaction identifier
+        tests:
+          - not_null
+      - name: transaction_date
+        description: Timestamp of the transaction
+      - name: client_id
+        description: Client who made the transaction
+      - name: card_id
+        description: Card used for the transaction
+      - name: amount
+        description: "Transaction amount (positive = earnings, negative = expenses)"
+      - name: current_age
+        description: Client's current age in years
+      - name: credit_score
+        description: Client's credit score
+      - name: total_debt
+        description: Client's total outstanding debt (USD)
+      - name: yearly_income
+        description: Client's yearly income (USD)
+      - name: card_brand
+        description: Card brand (Visa, Mastercard, etc.)
+      - name: card_type
+        description: "Card type: Debit or Credit"
+      - name: credit_limit
+        description: Credit limit on this card (USD)
+      - name: card_has_chip
+        description: Whether the card has a chip
+      - name: card_on_dark_web
+        description: Whether the card number was found on the dark web
+      - name: card_expiry_date
+        description: Card expiry date

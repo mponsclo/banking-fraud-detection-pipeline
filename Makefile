@@ -1,4 +1,4 @@
-.PHONY: help install dbt-build dbt-seed dbt-run dbt-test train export-models serve test lint format proto-compile trigger-ingestion docker-build docker-run docker-compose-up docker-compose-down load-data clean
+.PHONY: help install dbt-build dbt-seed dbt-run dbt-test dbt-docs train export-models serve test lint format proto-compile trigger-ingestion docker-build docker-run docker-compose-up docker-compose-down load-data clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -19,6 +19,9 @@ dbt-run: ## Run dbt models
 
 dbt-test: ## Run dbt tests
 	cd dbt && dbt test --profiles-dir .
+
+dbt-docs: ## Generate and serve dbt documentation (http://localhost:8081)
+	cd dbt && dbt docs generate --profiles-dir . && dbt docs serve --profiles-dir . --port 8081
 
 load-data: ## Upload large raw data to GCS + BigQuery (one-time)
 	./scripts/load_raw_data.sh

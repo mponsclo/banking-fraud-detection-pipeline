@@ -2,42 +2,139 @@ version: 2
 
 models:
   - name: stg_transactions
-    description: Cleaned transaction data with parsed amounts and dates
+    description: >
+      Cleaned transaction data with parsed error flags and channel indicators.
+      One row per transaction. Source: raw.transactions_data.
     columns:
       - name: transaction_id
-        description: Unique transaction identifier
+        description: Unique transaction identifier (renamed from `id`)
         tests:
           - not_null
+      - name: transaction_date
+        description: Timestamp of the transaction (renamed from `date`)
       - name: client_id
+        description: Client who made the transaction
         tests:
           - not_null
+      - name: card_id
+        description: Card used for the transaction
       - name: amount
-        description: Transaction amount (positive=earnings, negative=expenses)
+        description: "Transaction amount. Positive = earnings/credits, negative = expenses/purchases"
+      - name: use_chip
+        description: "Payment method: 'Chip Transaction', 'Swipe Transaction', or 'Online Transaction'"
+      - name: merchant_id
+        description: Unique merchant identifier
+      - name: merchant_city
+        description: "City of the merchant, or 'ONLINE' for online transactions"
+      - name: merchant_state
+        description: "2-letter US state code of the merchant. Empty for online transactions"
+      - name: zip
+        description: "ZIP code of the merchant as string. Empty for online transactions"
+      - name: mcc
+        description: Merchant Category Code (4-digit industry classification)
+      - name: errors
+        description: "Error type if any occurred (e.g., 'Bad CVV', 'Insufficient Balance'). NULL if no error"
+      - name: has_bad_cvv
+        description: "1 if the transaction had a 'Bad CVV' error, 0 otherwise"
+      - name: has_bad_expiration
+        description: "1 if the transaction had a 'Bad Expiration' error, 0 otherwise"
+      - name: has_bad_card_number
+        description: "1 if the transaction had a 'Bad Card Number' error, 0 otherwise"
+      - name: has_bad_pin
+        description: "1 if the transaction had a 'Bad PIN' error, 0 otherwise"
+      - name: has_insufficient_balance
+        description: "1 if the transaction had an 'Insufficient Balance' error, 0 otherwise"
+      - name: has_technical_glitch
+        description: "1 if the transaction had a 'Technical Glitch' error, 0 otherwise"
+      - name: has_any_error
+        description: "1 if the transaction had any error at all, 0 otherwise"
+      - name: is_online
+        description: "1 if use_chip = 'Online Transaction', 0 otherwise. Online has 28x the fraud rate vs swipe"
 
   - name: stg_users
-    description: Client demographic and financial data with cleaned currency fields
+    description: >
+      Client demographic and financial data with cleaned currency fields.
+      One row per client. Source: seeds/users_data.csv.
     columns:
       - name: client_id
-        description: Unique client identifier
+        description: Unique client identifier (renamed from `id`)
         tests:
           - unique
           - not_null
+      - name: current_age
+        description: Client's current age in years
+      - name: retirement_age
+        description: Expected retirement age
+      - name: birth_year
+        description: Year of birth
+      - name: birth_month
+        description: Month of birth
+      - name: gender
+        description: Client's gender
+      - name: address
+        description: Client's home address
+      - name: latitude
+        description: Latitude of client's home address
+      - name: longitude
+        description: Longitude of client's home address
+      - name: per_capita_income
+        description: Per capita income in the client's area (USD, parsed from $ string)
+      - name: yearly_income
+        description: Client's yearly income (USD, parsed from $ string)
+      - name: total_debt
+        description: Client's total outstanding debt (USD, parsed from $ string)
+      - name: credit_score
+        description: Client's credit score (typically 300-850)
+      - name: num_credit_cards
+        description: Number of credit cards held by the client
 
   - name: stg_cards
-    description: Card details with parsed expiry dates and boolean flags
+    description: >
+      Card details with parsed expiry dates and boolean flags.
+      One row per card. Source: seeds/cards_data.csv.
     columns:
       - name: card_id
-        description: Unique card identifier
+        description: Unique card identifier (renamed from `id`)
         tests:
           - not_null
       - name: client_id
+        description: Client who owns this card
         tests:
           - not_null
+      - name: card_brand
+        description: "Card brand (e.g., Visa, Mastercard)"
+      - name: card_type
+        description: "Card type: 'Debit' or 'Credit'"
+      - name: card_number
+        description: Card number (masked or full depending on source)
+      - name: expires
+        description: Raw expiry string in MM/YYYY format
+      - name: cvv
+        description: Card security code
+      - name: has_chip
+        description: "TRUE if the card has a chip, FALSE otherwise (parsed from 'YES'/'NO')"
+      - name: num_cards_issued
+        description: Total number of cards issued to this client
+      - name: credit_limit
+        description: Credit limit in USD (parsed from $ string via SAFE_CAST)
+      - name: acct_open_date
+        description: Account opening date in MM/YYYY format
+      - name: year_pin_last_changed
+        description: Year the PIN was last changed
+      - name: card_on_dark_web
+        description: "TRUE if the card number was found on the dark web (parsed from 'Yes'/'No')"
+      - name: expiry_date
+        description: Parsed expiry date as DATE type (1st of the expiry month)
 
   - name: stg_mcc_codes
-    description: Merchant Category Code reference table
+    description: >
+      Merchant Category Code reference table mapping numeric codes to category names.
+      One row per MCC. Source: seeds/mcc_codes.csv.
     columns:
       - name: mcc
+        description: Merchant Category Code (4-digit integer)
         tests:
           - unique
           - not_null
+      - name: category_name
+        description: Human-readable category name for the MCC

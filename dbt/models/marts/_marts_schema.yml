@@ -1,24 +1,223 @@
 version: 2
 
 models:
+  - name: mart_fraud_features
+    description: >
+      Feature-engineered transaction data for fraud detection (Task 3).
+      60+ features across 8 categories: amount, time, errors, velocity,
+      behavioral, geographic, card/user, and combined risk signals.
+      All features computed via SQL window functions and BigQuery-compatible patterns.
+    columns:
+      # identifiers
+      - name: transaction_id
+        description: Unique transaction identifier
+        tests:
+          - not_null
+          - unique
+      - name: client_id
+        description: Client who made the transaction
+      - name: card_id
+        description: Card used for the transaction
+      - name: transaction_date
+        description: Timestamp of the transaction
+      - name: merchant_id
+        description: Unique merchant identifier
+      - name: merchant_category
+        description: Human-readable MCC category name
+
+      # raw fields
+      - name: amount
+        description: "Original transaction amount (positive = earnings, negative = expenses)"
+      - name: use_chip
+        description: "Payment method: Chip, Swipe, or Online Transaction"
+      - name: mcc
+        description: Merchant Category Code (4-digit)
+      - name: merchant_city
+        description: Merchant city
+      - name: merchant_state
+        description: Merchant 2-letter US state code
+
+      # error features
+      - name: has_bad_cvv
+        description: "1 if bad CVV error. EDA: 23x base fraud rate"
+      - name: has_bad_expiration
+        description: 1 if bad expiration error
+      - name: has_bad_card_number
+        description: 1 if bad card number error
+      - name: has_bad_pin
+        description: 1 if bad PIN error
+      - name: has_insufficient_balance
+        description: 1 if insufficient balance error
+      - name: has_technical_glitch
+        description: 1 if technical glitch error
+      - name: has_any_error
+        description: 1 if any error occurred on this transaction
+      - name: card_errors_7d
+        description: Total error count for this card in the last 7 days (rolling window)
+
+      # channel and geographic features
+      - name: is_online
+        description: "1 if online transaction. EDA: 28x fraud rate vs swipe"
+      - name: is_out_of_home_state
+        description: "1 if transaction state differs from client's most frequent state"
+      - name: is_different_zip
+        description: "1 if transaction ZIP differs from client's most frequent ZIP"
+      - name: zip_region_distance
+        description: Approximate distance between transaction and home ZIP (first 3 digits comparison)
+
+      # time features
+      - name: txn_hour
+        description: Hour of the transaction (0-23)
+      - name: txn_day_of_week
+        description: Day of week (1=Sunday, 7=Saturday)
+      - name: txn_month
+        description: Month of the transaction (1-12)
+      - name: txn_year
+        description: Year of the transaction
+      - name: is_weekend
+        description: 1 if Saturday or Sunday
+      - name: is_night_txn
+        description: 1 if transaction occurred between 1 AM and 5 AM
+
+      # amount features
+      - name: abs_amount
+        description: Absolute value of the transaction amount
+      - name: is_expense
+        description: 1 if amount is negative (expense/purchase)
+      - name: log_amount
+        description: Natural log of (absolute amount + 1) for scale normalization
+      - name: amount_to_limit_ratio
+        description: Transaction amount as a fraction of the card's credit limit
+      - name: amount_zscore
+        description: "Z-score of the amount relative to the client's last 50 transactions"
+      - name: amount_vs_client_max
+        description: Amount as a ratio of the client's historical maximum transaction
+      - name: above_client_p90
+        description: "1 if amount exceeds the client's approximate 90th percentile (avg + 1.3*std)"
+
+      # velocity features (rolling windows over epoch seconds)
+      - name: txn_epoch
+        description: Transaction timestamp as Unix epoch seconds (used for RANGE windows)
+      - name: seconds_since_last_txn
+        description: Seconds since the previous transaction on this card
+      - name: card_txn_count_1h
+        description: Number of transactions on this card in the last 1 hour (excluding current)
+      - name: card_txn_count_24h
+        description: Number of transactions on this card in the last 24 hours (excluding current)
+      - name: card_txn_count_7d
+        description: Number of transactions on this card in the last 7 days (excluding current)
+      - name: card_amount_sum_24h
+        description: Sum of absolute amounts on this card in the last 24 hours (excluding current)
+
+      # client-level rolling statistics
+      - name: client_avg_amount_last50
+        description: "Average absolute amount of the client's last 50 transactions"
+      - name: client_std_amount_last50
+        description: "Standard deviation of the client's last 50 transaction amounts"
+      - name: client_max_amount_hist
+        description: Maximum absolute amount the client has ever spent (before this transaction)
+      - name: client_p90_amount_last50
+        description: "Approximate 90th percentile of the client's last 50 transactions (avg + 1.3*std)"
+
+      # behavioral features
+      - name: card_mcc_freq
+        description: How many times this card has used this MCC category before
+      - name: card_merchant_freq
+        description: How many times this card has used this specific merchant before
+      - name: card_distinct_mcc_7d
+        description: Approximate distinct MCCs used by this card in the last 7 days (proxy)
+      - name: client_distinct_cards_24h
+        description: Approximate distinct cards used by this client in 24h (placeholder, always 1)
+      - name: is_new_merchant
+        description: 1 if the card has never transacted with this merchant before
+      - name: is_new_mcc
+        description: 1 if the card has never transacted in this MCC category before
+      - name: rapid_succession
+        description: 1 if less than 60 seconds since the last transaction on this card
+
+      # card and user features
+      - name: card_brand
+        description: "Card brand (Visa, Mastercard, etc.)"
+      - name: card_type
+        description: "Card type: Debit or Credit"
+      - name: credit_limit
+        description: Credit limit on this card (USD)
+      - name: card_has_chip
+        description: Whether the card has a chip
+      - name: card_age_months
+        description: Age of the card in months at the time of the transaction
+      - name: current_age
+        description: Client's current age in years
+      - name: credit_score
+        description: Client's credit score
+      - name: total_debt
+        description: Client's total outstanding debt (USD)
+      - name: yearly_income
+        description: Client's yearly income (USD)
+      - name: debt_to_income_ratio
+        description: "Client's total debt divided by yearly income (0 if income is 0)"
+
+      # combined risk signals
+      - name: online_new_merchant
+        description: 1 if online AND first time at this merchant (compound risk)
+      - name: online_high_amount
+        description: "1 if online AND amount exceeds 2x the client's recent average"
+      - name: oos_new_merchant
+        description: 1 if out-of-home-state AND first time at this merchant
+      - name: error_online
+        description: 1 if any error AND online transaction
+
+      # Exp 9 behavioral features
+      - name: channel_switched
+        description: 1 if payment method changed from the previous transaction on this card
+      - name: card_testing_pattern
+        description: 1 if previous txn was <$5 and current is >$100 (card testing indicator)
+      - name: prev_txn_amount
+        description: Absolute amount of the previous transaction on this card
+      - name: client_avg_hour_last50
+        description: "Average transaction hour of the client's last 50 transactions"
+      - name: spend_acceleration
+        description: "Ratio of current 24h spend to prior 24h spend (spending velocity change)"
+      - name: daily_utilization
+        description: Cumulative 24h spend as a percentage of credit limit
+      - name: hour_deviation
+        description: "Absolute difference between this transaction's hour and the client's typical hour"
+
+      # gap statistics
+      - name: gap_zscore
+        description: "Z-score of inter-purchase gap relative to card's last 20 gaps (unusual timing)"
+      - name: card_avg_gap_last20
+        description: Average seconds between transactions for this card (last 20 gaps)
+      - name: card_std_gap_last20
+        description: Standard deviation of inter-purchase gaps for this card (last 20)
+      - name: min_gap_24h
+        description: Minimum gap between consecutive transactions in the last 24h (burst detection)
+
   - name: mart_client_monthly_expenses
     description: >
       Monthly aggregated expenses and earnings per client.
       Used as input for the expense forecasting model (Task 4).
+      Aggregates from int_transactions_enriched using GROUP BY ALL.
     columns:
       - name: client_id
+        description: Client identifier
         tests:
           - not_null
       - name: expense_month
+        description: First day of the month (DATE_TRUNC of transaction_date)
         tests:
           - not_null
-
-  - name: mart_fraud_features
-    description: >
-      Feature-engineered transaction data for fraud detection (Task 3).
-      Includes time, amount, card, and user features.
-    columns:
-      - name: transaction_id
-        tests:
-          - not_null
-          - unique
+      - name: total_expenses
+        description: Sum of absolute amounts for all expense transactions (amount < 0) in the month
+      - name: num_expense_transactions
+        description: Count of expense transactions in the month
+      - name: avg_expense_amount
+        description: Average absolute expense amount in the month (NULL if no expenses)
+      - name: max_expense_amount
+        description: Maximum single expense amount in the month (NULL if no expenses)
+      - name: total_earnings
+        description: Sum of all positive-amount transactions (credits/deposits) in the month
+      - name: num_earning_transactions
+        description: Count of earning/credit transactions in the month
+      - name: total_transactions
+        description: Total number of transactions (expenses + earnings) in the month
