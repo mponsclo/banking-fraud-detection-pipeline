@@ -187,6 +187,8 @@ Only identities with `roles/cloudkms.cryptoKeyDecrypter` on the KMS key can decr
 
 The `production` GitHub Environment requires manual approval before `terraform apply` runs, preventing accidental infrastructure changes. The plan is always posted as a PR comment first, so reviewers can see exactly what will change before approving.
 
+For the non-Terraform workflows (`lint.yml`, `docker-build-deploy.yml`) and the Python dev toolchain (Ruff, pre-commit, Makefile, Dockerfile), see [Development & CI/CD](9-development.md).
+
 ## Service Account Strategy
 
 Each workload has a dedicated SA with only the roles it needs:
