@@ -12,6 +12,22 @@ End-to-end ML pipeline for detecting fraud in 13M credit card transactions (0.15
 
 > Built during a data science hackathon organized by NUWE in partnership with CaixaBank. The original datasets are not included (see [Data](#data)).
 
+## Tech Stack
+
+| Layer | Choice | Why |
+|-------|--------|-----|
+| Data warehouse | BigQuery | Serverless SQL, cheap on this data volume, nested records for event data |
+| Transformation | dbt | Testable DAG, macros for BigQuery schema routing, lineage docs |
+| Ingestion | Cloud Functions + Pub/Sub + Protobuf | Serverless streaming, typed schema, built-in DLQ |
+| Model training | LightGBM | Fast on tabular data, handles extreme imbalance via focal loss |
+| Serving | FastAPI on Cloud Run | Typed Pydantic I/O, scale-to-zero, cold-start fits a free tier |
+| AI agent | LangChain + WeasyPrint | 3-layer LLM fallback (Vertex AI → Ollama → regex) + HTML/CSS PDF reports |
+| IaC | Terraform (two-phase) | Bootstrap (local) + main (CI-applied) for a chicken-and-egg-free setup |
+| Secrets | SOPS + GCP KMS | Encrypted `tfvars` in the repo, no plaintext, no stored keys |
+| Auth (CI → GCP) | Workload Identity Federation | OIDC token exchange, no service account keys anywhere |
+| Code quality | Ruff + pre-commit | One tool for lint + format, hooks mirror CI checks |
+| CI/CD | GitHub Actions | Five workflows: lint, terraform validate/plan/apply, docker build+deploy |
+
 ## Results
 
 | Task | Score Metric | Result |
@@ -38,6 +54,7 @@ End-to-end ML pipeline for detecting fraud in 13M credit card transactions (0.15
 | [AI Agent](docs/6-agent.md) | Natural language report generation with 3-layer LLM fallback |
 | [Infrastructure](docs/7-infrastructure.md) | Terraform, Workload Identity Federation, SOPS/KMS, CI/CD |
 | [Experiments Log](docs/8-experiments.md) | Raw journal: 9 fraud + 2 forecast experiments with ablation studies |
+| [Development & CI/CD](docs/9-development.md) | Makefile, Ruff, pre-commit, Dockerfile, GitHub Actions workflows |
 
 **Notebooks:** [EDA](reports/01-eda-fraud-detection.ipynb) (fraud signal analysis) | [Model Results](reports/02-model-results.ipynb) (PR curves, feature importance, forecasts)
 
@@ -136,7 +153,7 @@ The report engine uses **Jinja2 + WeasyPrint** (HTML/CSS paged media) to produce
 
 ### Infrastructure (Terraform + GCP)
 
-Two-phase Terraform: bootstrap (project, KMS, SAs, WIF) + main config (BigQuery, Cloud Run, Artifact Registry). Workload Identity Federation for keyless GitHub-to-GCP auth. SOPS/KMS-encrypted secrets committed to repo, decryptable only by authorized identities.
+Two-phase Terraform (bootstrap + main), Workload Identity Federation for keyless CI auth, SOPS/KMS-encrypted secrets. See [Infrastructure](docs/7-infrastructure.md) and [Development & CI/CD](docs/9-development.md) for details.
 
 ---
 
@@ -193,6 +210,31 @@ make test           # 9/9 should pass
 make lint           # ruff check + format check
 make format         # auto-fix + format
 ```
+
+---
+
+## Build & Deploy
+
+**Local toolchain** ([Makefile](Makefile), [pyproject.toml](pyproject.toml), [.pre-commit-config.yaml](.pre-commit-config.yaml), [Dockerfile](Dockerfile))
+
+```bash
+pre-commit install                 # hook: ruff check + ruff-format on every commit
+make lint                          # ruff check + ruff format --check
+make format                        # auto-fix and format
+make docker-build && make docker-run  # reproduce the Cloud Run image locally
+```
+
+**CI/CD** ([.github/workflows/](.github/workflows/))
+
+- [lint.yml](.github/workflows/lint.yml) — Ruff check + format on every PR and push to main
+- [terraform-validate.yml](.github/workflows/terraform-validate.yml) — fmt + validate on infra PRs
+- [terraform-plan.yml](.github/workflows/terraform-plan.yml) — WIF + SOPS, plan posted as PR comment
+- [terraform-apply.yml](.github/workflows/terraform-apply.yml) — auto-apply on merge to main, gated by `production` environment
+- [docker-build-deploy.yml](.github/workflows/docker-build-deploy.yml) — build, push to Artifact Registry, deploy to Cloud Run
+
+**Secrets:** SOPS + GCP KMS encrypt `terraform/terraform.tfvars.enc`; only identities with `cloudkms.cryptoKeyDecrypter` can decrypt. See [.sops.yaml](.sops.yaml).
+
+See [docs/9-development.md](docs/9-development.md) for the full dev + CI/CD guide.
 
 ---
 
@@ -259,7 +301,7 @@ The datasets are **not included** in this repository. To reproduce the results, 
 ├── reports/                    # EDA notebook + model results notebook
 │   └── showcase/               # 3 example PDF reports
 ├── tests/                      # Hackathon test suite (9 tests)
-├── docs/                       # Component guides (1-ingestion through 8-experiments)
+├── docs/                       # Component guides (1-ingestion through 9-development)
 ├── Dockerfile                  # python:3.10-slim + uvicorn + WeasyPrint deps
 ├── Makefile                    # install, dbt-build, export-models, serve, lint, test
 └── pyproject.toml              # Ruff linter configuration
