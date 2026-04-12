@@ -78,7 +78,7 @@ locals {
     "roles/pubsub.subscriber",      # EventArc subscription
     "roles/run.invoker",            # Cloud Scheduler invokes producer; EventArc invokes consumer
     "roles/eventarc.eventReceiver", # Receive EventArc triggers
-    "roles/storage.objectAdmin", # Read CSV + cursor from GCS, overwrite cursor
+    "roles/storage.objectAdmin",    # Read CSV + cursor from GCS, overwrite cursor
   ]
 }
 
