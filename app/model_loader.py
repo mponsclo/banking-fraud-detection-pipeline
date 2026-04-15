@@ -1,8 +1,11 @@
 """Load serialized ML models at startup."""
 
+import logging
 import os
 
 import joblib
+
+logger = logging.getLogger(__name__)
 
 MODELS_DIR = os.environ.get("MODELS_DIR", "outputs/models")
 
@@ -14,7 +17,7 @@ def _safe_load(path: str, label: str) -> object | None:
     try:
         return joblib.load(path)
     except Exception as e:
-        print(f"Warning: failed to load {label} from {path}: {e}")
+        logger.warning("Failed to load %s from %s: %s", label, path, e)
         return None
 
 
@@ -43,5 +46,5 @@ def load_models() -> dict:
     if meta:
         models["feature_metadata"] = meta
 
-    print(f"Loaded {len(models)} model artifacts from {MODELS_DIR}")
+    logger.info("Loaded %d model artifacts from %s", len(models), MODELS_DIR)
     return models
